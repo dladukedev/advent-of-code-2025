@@ -1,0 +1,9 @@
+# Zig build artifacts and temporary files
+.zig-cache/
+zig-out/
+/release/
+/debug/
+/build/
+/build-*/
+/docgen_tmp/
+src/*.txt
