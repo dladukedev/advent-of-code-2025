@@ -2,52 +2,113 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const util = @import("util.zig");
 
-const Point = struct { x: u32, y: u32 };
+fn traverse(map: std.StringHashMap(std.array_list.Managed([]const u8)), loc: []const u8, end: []const u8, cache: *std.StringHashMap(u64)) !u64 {
+    if (cache.contains(loc)) {
+        return cache.get(loc).?;
+    }
+    if (std.mem.eql(u8, loc, end)) {
+        return 1;
+    }
 
-fn calculateArea(p1: Point, p2: Point) u64 {
-    const a: u64 = if (p1.x > p2.x) p1.x - p2.x else p2.x - p1.x;
-    const b: u64 = if (p1.y > p2.y) p1.y - p2.y else p2.y - p1.y;
+    if (std.mem.eql(u8, loc, "out")) {
+        return 0;
+    }
 
-    return (a + 1) * (b + 1);
+    const nextLocations = map.get(loc).?;
+
+    var sum: u64 = 0;
+    for (nextLocations.items) |nextLoc| {
+        sum += try traverse(map, nextLoc, end, cache);
+    }
+    try cache.put(loc, sum);
+
+    return sum;
 }
 
 fn part_1(allocator: Allocator, input: []const u8) !u64 {
     const lines = util.split_lines(allocator, input);
     defer lines.deinit();
 
-    var points = try allocator.alloc(Point, lines.items.len);
-    defer allocator.free(points);
-
-    for (lines.items, 0..) |line, index| {
-        var coordinates = std.mem.splitScalar(u8, line, ',');
-        const xStr = std.mem.trim(u8, coordinates.first(), " \t\n\r");
-        const yStr = std.mem.trim(u8, coordinates.next().?, " \t\n\r");
-
-        const x = try std.fmt.parseInt(u32, xStr, 10);
-        const y = try std.fmt.parseInt(u32, yStr, 10);
-
-        points[index] = Point{ .x = x, .y = y };
-    }
-
-    var largestArea: u64 = 0;
-
-    for (points, 0..) |p1, idx1| {
-        for (points, 0..) |p2, idx2| {
-            if (idx1 <= idx2) continue;
-
-            const area = calculateArea(p1, p2);
-
-            if (area > largestArea) {
-                largestArea = area;
-            }
+    var map = std.StringHashMap(std.array_list.Managed([]const u8)).init(allocator);
+    defer map.deinit();
+    defer {
+        var iterator = map.valueIterator();
+        while (iterator.next()) |item| {
+            item.deinit();
         }
     }
 
-    return largestArea;
+    for (lines.items) |line| {
+        const splitIndex = std.mem.indexOf(u8, line, ":").?;
+        const key = line[0..splitIndex];
+
+        var buffer = std.array_list.Managed([]const u8).init(allocator);
+
+        var nodesStrings = std.mem.splitScalar(u8, line[5..line.len], ' ');
+        while (nodesStrings.next()) |node| {
+            try buffer.append(node);
+        }
+
+        // var nodes = try allocator.alloc([]const u8, buffer.items.len);
+        // @memcpy(nodes[0..], buffer.items[0..]);
+        try map.put(key, buffer);
+    }
+
+    var cache = std.StringHashMap(u64).init(allocator);
+    defer cache.deinit();
+
+    return traverse(map, "you", "out", &cache);
 }
 
-// fn part_2(allocator: Allocator, input: []const u8) !u64 {
-// }
+fn part_2(allocator: Allocator, input: []const u8) !u64 {
+    const lines = util.split_lines(allocator, input);
+    defer lines.deinit();
+
+    var map = std.StringHashMap(std.array_list.Managed([]const u8)).init(allocator);
+    defer map.deinit();
+    defer {
+        var iterator = map.valueIterator();
+        while (iterator.next()) |item| {
+            item.deinit();
+        }
+    }
+
+    for (lines.items) |line| {
+        const splitIndex = std.mem.indexOf(u8, line, ":").?;
+        const key = line[0..splitIndex];
+
+        var buffer = std.array_list.Managed([]const u8).init(allocator);
+
+        var nodesStrings = std.mem.splitScalar(u8, line[5..line.len], ' ');
+        while (nodesStrings.next()) |node| {
+            try buffer.append(node);
+        }
+
+        try map.put(key, buffer);
+    }
+
+    var cache = std.StringHashMap(u64).init(allocator);
+    defer cache.deinit();
+
+    const dacToFft = try traverse(map, "dac", "fft", &cache);
+
+    cache.clearAndFree();
+    const fftToDac = try traverse(map, "fft", "dac", &cache);
+
+    cache.clearAndFree();
+    const startToDac = try traverse(map, "svr", "dac", &cache);
+
+    cache.clearAndFree();
+    const startToFft = try traverse(map, "svr", "fft", &cache);
+
+    cache.clearAndFree();
+    const dacToOut = try traverse(map, "dac", "out", &cache);
+
+    cache.clearAndFree();
+    const fftToOut = try traverse(map, "fft", "out", &cache);
+
+    return (startToDac * dacToFft * fftToOut) + (startToFft * fftToDac * dacToOut);
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -59,21 +120,23 @@ pub fn main() !void {
     std.debug.print("December 11\n", .{});
     const resultPart1 = part_1(allocator, file);
     std.debug.print("Part 1: {!}\n", .{resultPart1});
-    // const resultPart2 = part_2(allocator, file);
-    // std.debug.print("Part 2: {!}\n", .{resultPart2});
+    const resultPart2 = part_2(allocator, file);
+    std.debug.print("Part 2: {!}\n", .{resultPart2});
 }
 
 test "part 1" {
-    const expected = 50;
+    const expected = 5;
     const input =
-        \\7,1
-        \\11,1
-        \\11,7
-        \\9,7
-        \\9,5
-        \\2,5
-        \\2,3
-        \\7,3
+        \\aaa: you hhh
+        \\you: bbb ccc
+        \\bbb: ddd eee
+        \\ccc: ddd eee fff
+        \\ddd: ggg
+        \\eee: out
+        \\fff: out
+        \\ggg: out
+        \\hhh: ccc fff iii
+        \\iii: out
     ;
 
     const actual = part_1(std.testing.allocator, input);
@@ -81,32 +144,25 @@ test "part 1" {
     try std.testing.expectEqual(expected, actual);
 }
 
-// test "part 2" {
-//     const expected = 25272;
-//     const input =
-//         \\162,817,812
-//         \\57,618,57
-//         \\906,360,560
-//         \\592,479,940
-//         \\352,342,300
-//         \\466,668,158
-//         \\542,29,236
-//         \\431,825,988
-//         \\739,650,466
-//         \\52,470,668
-//         \\216,146,977
-//         \\819,987,18
-//         \\117,168,530
-//         \\805,96,715
-//         \\346,949,466
-//         \\970,615,88
-//         \\941,993,340
-//         \\862,61,35
-//         \\984,92,344
-//         \\425,690,689
-//     ;
-//
-//     const actual = part_2(std.testing.allocator, input);
-//
-//     try std.testing.expectEqual(expected, actual);
-// }
+test "part 2" {
+    const expected = 2;
+    const input =
+        \\svr: aaa bbb
+        \\aaa: fft
+        \\fft: ccc
+        \\bbb: tty
+        \\tty: ccc
+        \\ccc: ddd eee
+        \\ddd: hub
+        \\hub: fff
+        \\eee: dac
+        \\dac: fff
+        \\fff: ggg hhh
+        \\ggg: out
+        \\hhh: out
+    ;
+
+    const actual = part_2(std.testing.allocator, input);
+
+    try std.testing.expectEqual(expected, actual);
+}
